@@ -1,1 +1,3 @@
 model,params,cv_pr_auc,test_pr_auc,test_roc_auc,recall,precision,f1,notes
+LogisticRegression (baseline),C=1;l2;class_weight=balanced,0.2036,0.507,0.6905,0.8274,0.3726,0.5138,Member 1; threshold 0.5
+LogisticRegression (tuned),{'clf__C': 1; 'clf__l1_ratio': 1.0},0.2043,0.4539,0.6487,0.8087,0.3672,0.5051,Member 1; threshold 0.5; best-F1 thr 0.732; 20% budget thr 0.535
