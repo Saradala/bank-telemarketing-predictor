@@ -16,6 +16,8 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.client_features import AgeGrouper, UnknownHandler
 from src.config import LEAKAGE_COLUMNS, RANDOM_STATE, RAW_DATA, TARGET
+from src.data_cleaning import remove_duplicates
+
 
 # raw columns available BEFORE a call (duration is excluded - it is leakage)
 INPUT_COLUMNS = ["age", "job", "marital", "education", "default", "housing", "loan", "contact",
@@ -41,14 +43,15 @@ class PdaysFlag(BaseEstimator, TransformerMixin):
 
 
 def load_data():
-    """Read the raw CSV, drop leakage columns and exact duplicates. Returns X (raw columns), y (0/1)."""
+    """Read the raw CSV, remove duplicates (before dropping duration, per team's data_cleaning.py),
+    then drop leakage columns. Returns X (raw columns), y (0/1)."""
     with open(RAW_DATA, encoding="utf-8") as f:
         sep = ";" if ";" in f.readline() else ","
-    df = pd.read_csv(RAW_DATA, sep=sep).drop(columns=LEAKAGE_COLUMNS, errors="ignore")
-    df = df.drop_duplicates().reset_index(drop=True)      # keeps the date order of the rows
+    df = pd.read_csv(RAW_DATA, sep=sep)
+    df = remove_duplicates(df)                            # dedup on ALL columns first (matches proposal: 12 dupes)
+    df = df.drop(columns=LEAKAGE_COLUMNS, errors="ignore")  # THEN drop duration (leakage)
     y = (df[TARGET] == "yes").astype(int)
     return df[INPUT_COLUMNS], y
-
 
 def chronological_split(X, y, test_fraction=0.20):
     """Rows are ordered by date, so the LAST rows are the test set (no shuffling)."""
