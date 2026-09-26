@@ -2,6 +2,7 @@ import pandas as pd
 
 from src.data_cleaning import (
     clean_and_split,
+    create_stratified_split,
     prepare_features_and_target,
     remove_duplicates,
 )
@@ -82,3 +83,29 @@ def test_clean_and_split_is_reproducible():
         second_split,
     ):
         assert first_result.equals(second_result)
+
+
+def test_create_stratified_split_passes_target_to_stratify(
+    monkeypatch,
+):
+    """Ensure the target is explicitly passed to stratify."""
+
+    data = create_sample_data()
+    X, y = prepare_features_and_target(data)
+
+    captured_arguments = {}
+
+    def fake_train_test_split(X_data, y_data, **kwargs):
+        captured_arguments.update(kwargs)
+        return X_data, X_data, y_data, y_data
+
+    monkeypatch.setattr(
+        "src.data_cleaning.train_test_split",
+        fake_train_test_split,
+    )
+
+    create_stratified_split(X, y)
+
+    assert captured_arguments["stratify"] is y
+    assert captured_arguments["test_size"] == 0.20
+    assert captured_arguments["random_state"] == 42
