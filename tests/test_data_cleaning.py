@@ -21,6 +21,7 @@ def create_sample_data():
 
 
 def test_remove_duplicates():
+    """Verify that exact duplicate rows are removed."""
     data = create_sample_data()
 
     data_with_duplicate = pd.concat(
@@ -35,6 +36,7 @@ def test_remove_duplicates():
 
 
 def test_prepare_features_and_target():
+    """Verify that predictors exclude the target and duration leakage feature."""
     data = create_sample_data()
 
     X, y = prepare_features_and_target(data)
@@ -46,6 +48,7 @@ def test_prepare_features_and_target():
 
 
 def test_clean_and_split_uses_80_20_split():
+    """Verify the default 80/20 split sizes for features and targets."""
     data = create_sample_data()
 
     X_train, X_test, y_train, y_test = clean_and_split(data)
@@ -57,6 +60,7 @@ def test_clean_and_split_uses_80_20_split():
 
 
 def test_clean_and_split_is_stratified():
+    """Verify that both splits preserve the sample target class proportions."""
     data = create_sample_data()
 
     _, _, y_train, y_test = clean_and_split(data)
@@ -73,6 +77,7 @@ def test_clean_and_split_is_stratified():
 
 
 def test_clean_and_split_is_reproducible():
+    """Verify that repeated calls with the default seed produce equal splits."""
     data = create_sample_data()
 
     first_split = clean_and_split(data)
@@ -96,6 +101,7 @@ def test_create_stratified_split_passes_target_to_stratify(
     captured_arguments = {}
 
     def fake_train_test_split(X_data, y_data, **kwargs):
+        """Capture split options and return the input data as both splits."""
         captured_arguments.update(kwargs)
         return X_data, X_data, y_data, y_data
 
