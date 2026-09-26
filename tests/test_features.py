@@ -40,6 +40,21 @@ def test_missing_pdays_is_not_marked_as_known():
     assert np.isnan(out.loc[2, "pdays"])
 
 
+@pytest.mark.parametrize("dtype", ["float64", "Int64"])
+def test_missing_values_give_zero_flags_for_float_and_nullable_integer_columns(dtype):
+    """Missing previous/pdays (NaN or pandas <NA>) give flags of 0 instead of crashing on astype(int)."""
+    na = np.nan if dtype == "float64" else pd.NA
+    df = pd.DataFrame({
+        "campaign": pd.array([1, 2, 3], dtype=dtype),
+        "pdays": pd.array([999, 5, na], dtype=dtype),
+        "previous": pd.array([0, 1, na], dtype=dtype),
+    })
+    out = CampaignFeatures().fit_transform(df)
+    assert out["previously_contacted"].tolist() == [0, 1, 0]
+    assert out["pdays_known"].tolist() == [0, 1, 0]
+    assert out["previously_contacted"].dtype == out["pdays_known"].dtype == np.dtype("int64")
+
+
 def test_pdays_999_is_recoded_and_real_values_are_kept():
     """999 becomes -1; real values (including 0 = same day) are unchanged."""
     df = pd.DataFrame({"campaign": [1, 1, 1], "pdays": [999, 0, 21], "previous": [0, 1, 1]})

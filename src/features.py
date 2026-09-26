@@ -61,9 +61,12 @@ class CampaignFeatures(BaseEstimator, TransformerMixin):
         self._check_columns(X)
         X = X.copy()
         # 1 only when a positive count is recorded; a missing `previous` is not treated as a contact
-        X["previously_contacted"] = (X["previous"] > 0).astype(int)
+        # (fillna(False) turns a missing comparison result into 0; nullable dtypes such as Int64 give
+        # <NA> here and astype(int) would fail on it)
+        X["previously_contacted"] = (X["previous"] > 0).fillna(False).astype(int)
         # "known" means a real day count: neither the 999 code nor a missing value
-        X["pdays_known"] = (X["pdays"].notna() & (X["pdays"] != PDAYS_NOT_RECORDED)).astype(int)
+        X["pdays_known"] = ((X["pdays"] != PDAYS_NOT_RECORDED) & X["pdays"].notna()).fillna(False).astype(int)
         X["pdays"] = X["pdays"].replace(PDAYS_NOT_RECORDED, PDAYS_RECODED)
-        X["campaign"] = X["campaign"].clip(upper=self.campaign_cap_)
+        # float first: the cap can be fractional, which an Int64 column cannot hold
+        X["campaign"] = X["campaign"].astype(float).clip(upper=self.campaign_cap_)
         return X
