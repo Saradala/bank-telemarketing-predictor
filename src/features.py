@@ -16,8 +16,8 @@ Use it as the FIRST step of a pipeline, before the ColumnTransformer:
 
     Pipeline([("features", CampaignFeatures()), ("prep", column_transformer), ("clf", model)])
 """
-import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 PDAYS_NOT_RECORDED = 999    # code used in the raw data for "no previous contact recorded"
 PDAYS_RECODED = -1          # value that replaces the code (trees split on it cleanly)
@@ -32,14 +32,17 @@ class CampaignFeatures(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, cap_quantile=0.99):
+        """Store the quantile used for the cap (no data is looked at here)."""
         self.cap_quantile = cap_quantile
 
     def _check_columns(self, X):
+        """Raise a clear error if a required column is missing."""
         missing = [c for c in REQUIRED_COLUMNS if c not in X.columns]
         if missing:
             raise ValueError(f"CampaignFeatures needs these columns: {missing}")
 
     def fit(self, X, y=None):
+        """Learn the `campaign` cap from the training data."""
         if not 0.0 < self.cap_quantile <= 1.0:
             raise ValueError("cap_quantile must be in (0, 1]")
         self._check_columns(X)
@@ -48,10 +51,14 @@ class CampaignFeatures(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Add the two flags, recode pdays 999 to -1 and cap `campaign`; returns a new DataFrame."""
+        check_is_fitted(self, "campaign_cap_")     # sklearn's NotFittedError if fit() was not called
         self._check_columns(X)
         X = X.copy()
+        # 1 only when a positive count is recorded; a missing `previous` is not treated as a contact
         X["previously_contacted"] = (X["previous"] > 0).astype(int)
-        X["pdays_known"] = (X["pdays"] != PDAYS_NOT_RECORDED).astype(int)
+        # "known" means a real day count: neither the 999 code nor a missing value
+        X["pdays_known"] = (X["pdays"].notna() & (X["pdays"] != PDAYS_NOT_RECORDED)).astype(int)
         X["pdays"] = X["pdays"].replace(PDAYS_NOT_RECORDED, PDAYS_RECODED)
         X["campaign"] = X["campaign"].clip(upper=self.campaign_cap_)
         return X
