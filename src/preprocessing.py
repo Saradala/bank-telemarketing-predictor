@@ -25,9 +25,15 @@ def find_high_correlations(
     threshold: float = 0.80,
 ) -> pd.DataFrame:
     """Return feature pairs whose absolute correlation exceeds the threshold."""
-    selected_data = data[columns] if columns is not None else data.select_dtypes(
-        include=np.number
-    )
+    if columns is None:
+        selected_data = data.select_dtypes(include=np.number)
+    else:
+        selected_data = data[columns]
+        nonnumeric = selected_data.select_dtypes(exclude=np.number).columns.tolist()
+        if nonnumeric:
+            raise ValueError(
+                f"columns must be numeric; nonnumeric columns: {nonnumeric}"
+            )
 
     correlation_matrix = selected_data.corr().abs()
 
