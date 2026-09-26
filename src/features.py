@@ -16,6 +16,7 @@ Use it as the FIRST step of a pipeline, before the ColumnTransformer:
 
     Pipeline([("features", CampaignFeatures()), ("prep", column_transformer), ("clf", model)])
 """
+import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
@@ -47,7 +48,11 @@ class CampaignFeatures(BaseEstimator, TransformerMixin):
             raise ValueError("cap_quantile must be in (0, 1]")
         self._check_columns(X)
         # the cap is learned from TRAINING data only (a cap from the test set would be leakage)
-        self.campaign_cap_ = float(X["campaign"].quantile(self.cap_quantile))
+        cap = float(X["campaign"].quantile(self.cap_quantile))
+        if np.isnan(cap):
+            # an empty / all-missing column gives a NaN quantile, and clip(upper=NaN) would cap nothing
+            raise ValueError("`campaign` has no valid values in the training data, so no cap can be learned")
+        self.campaign_cap_ = cap
         return self
 
     def transform(self, X):

@@ -97,6 +97,18 @@ def test_invalid_cap_quantile_raises():
         CampaignFeatures(cap_quantile=0).fit(_train())
 
 
+@pytest.mark.parametrize("campaign_values", [[], [np.nan, np.nan]])
+def test_fit_rejects_empty_or_all_missing_campaign(campaign_values):
+    """No valid campaign values means no cap can be learned; fit must fail instead of storing NaN."""
+    df = pd.DataFrame({
+        "campaign": pd.Series(campaign_values, dtype=float),
+        "pdays": pd.Series([999] * len(campaign_values), dtype=float),
+        "previous": pd.Series([0] * len(campaign_values), dtype=float),
+    })
+    with pytest.raises(ValueError, match="no valid values"):
+        CampaignFeatures().fit(df)
+
+
 def test_transform_before_fit_raises_not_fitted_error():
     """Calling transform without fit raises sklearn's NotFittedError, not an AttributeError."""
     with pytest.raises(NotFittedError):
