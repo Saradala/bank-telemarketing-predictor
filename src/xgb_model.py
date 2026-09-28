@@ -11,10 +11,11 @@ inside, so the same object can be saved and served by the API:
 Trees do not need scaling, so there is no scaler. 'unknown' stays a category of its own (team decision).
 """
 import numpy as np
+from scipy.stats import randint, uniform, loguniform
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import (average_precision_score, confusion_matrix, precision_recall_fscore_support,
                              roc_auc_score)
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
@@ -22,6 +23,20 @@ from xgboost import XGBClassifier
 from src.config import CV_FOLDS, RANDOM_STATE
 from src.features import CampaignFeatures
 from src.lr_model import CATEGORICAL
+
+# Search space for hyperparameter tuning (RandomizedSearchCV and Optuna both use this range,
+# so the two search methods are compared fairly). Keys use the clf__ prefix so they reach the
+# XGBClassifier step inside the pipeline built by build_xgb_pipeline().
+SEARCH_SPACE = {
+    "clf__n_estimators": randint(200, 1001),
+    "clf__learning_rate": loguniform(0.01, 0.3),
+    "clf__max_depth": randint(3, 11),
+    "clf__min_child_weight": randint(1, 11),
+    "clf__subsample": uniform(0.6, 0.4),          # sampled range: 0.6 to 1.0
+    "clf__colsample_bytree": uniform(0.6, 0.4),   # sampled range: 0.6 to 1.0
+    "clf__gamma": uniform(0, 5),
+    "clf__reg_lambda": loguniform(0.1, 10),
+}
 
 
 def compute_scale_pos_weight(y_train):
@@ -45,6 +60,22 @@ def build_xgb_pipeline(scale_pos_weight, cap_quantile=0.99, **params):
     clf = XGBClassifier(scale_pos_weight=scale_pos_weight, eval_metric="aucpr", tree_method="hist",
                         random_state=RANDOM_STATE, n_jobs=-1, **params)
     return Pipeline([("features", CampaignFeatures(cap_quantile=cap_quantile)), ("prep", prep), ("clf", clf)])
+
+
+def random_search_xgb(X_train, y_train, scale_pos_weight, n_iter=40, cap_quantile=0.99,
+                      search_space=SEARCH_SPACE, n_splits=CV_FOLDS, random_state=RANDOM_STATE):
+    """Search SEARCH_SPACE with RandomizedSearchCV, scored on PR-AUC, using stratified CV on TRAINING data.
+
+    Tries n_iter random combinations (default 40, matching the team's Optuna budget so the two search
+    methods can be compared fairly). Returns the fitted RandomizedSearchCV object: .best_params_,
+    .best_score_ (mean CV PR-AUC of the best combination) and .best_estimator_ (refit on all of X_train).
+    """
+    pipeline = build_xgb_pipeline(scale_pos_weight, cap_quantile=cap_quantile)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    search = RandomizedSearchCV(pipeline, search_space, n_iter=n_iter, cv=cv, scoring="average_precision",
+                                random_state=random_state, n_jobs=-1, refit=True)
+    search.fit(X_train, y_train)
+    return search
 
 
 def cv_summary(pipeline, X_train, y_train, n_splits=CV_FOLDS):
