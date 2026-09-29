@@ -12,6 +12,7 @@ joblib
 jupyter
 fastapi
 uvicorn
+python-multipart
 pydantic
 streamlit
 requests
