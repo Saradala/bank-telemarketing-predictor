@@ -5,7 +5,7 @@ import pytest
 from src.features import CampaignFeatures
 from src.lr_model import CATEGORICAL, INPUT_COLUMNS
 from src.xgb_model import (SEARCH_SPACE, build_xgb_pipeline, compute_scale_pos_weight, cv_summary,
-                           evaluate_at_threshold, random_search_xgb)
+                           evaluate_at_threshold, optuna_search_xgb, random_search_xgb, search_space_bounds)
 
 _LEVELS = {"job": ["admin.", "retired", "unknown"], "marital": ["married", "single"],
            "education": ["university.degree", "high.school", "unknown"], "default": ["no", "unknown"],
@@ -135,3 +135,38 @@ def test_random_search_is_reproducible_with_the_same_random_state():
     s2 = random_search_xgb(X, y, spw, n_iter=2, n_splits=2, random_state=7)
     assert s1.best_score_ == pytest.approx(s2.best_score_)
     assert s1.best_params_ == s2.best_params_
+
+
+def test_search_space_bounds_match_the_ranges_in_the_search_space():
+    """search_space_bounds must read out exactly the ranges SEARCH_SPACE was written with."""
+    bounds = search_space_bounds()
+    assert bounds["n_estimators"] == {"low": 200, "high": 1000, "int": True, "log": False}
+    assert bounds["max_depth"] == {"low": 3, "high": 10, "int": True, "log": False}
+    assert bounds["learning_rate"] == {"low": 0.01, "high": 0.3, "int": False, "log": True}
+    assert bounds["reg_lambda"] == {"low": 0.1, "high": 10, "int": False, "log": True}
+    assert bounds["subsample"] == pytest.approx({"low": 0.6, "high": 1.0, "int": False, "log": False})
+    assert bounds["gamma"] == {"low": 0, "high": 5, "int": False, "log": False}
+
+
+def test_optuna_search_returns_a_valid_study():
+    """A tiny Optuna search (few trials, few folds) runs end to end and returns a usable best result."""
+    X, y = _data(n=400, seed=1)
+    study = optuna_search_xgb(X, y, compute_scale_pos_weight(y), n_trials=2, n_splits=2, random_state=0)
+    assert 0 < study.best_value <= 1
+    assert set(study.best_params) == set(search_space_bounds())
+
+
+def test_optuna_search_is_reproducible_with_the_same_random_state():
+    """Same data, same random_state -> the same best value, so results can be reproduced."""
+    X, y = _data(n=300, seed=2)
+    spw = compute_scale_pos_weight(y)
+    s1 = optuna_search_xgb(X, y, spw, n_trials=2, n_splits=2, random_state=7)
+    s2 = optuna_search_xgb(X, y, spw, n_trials=2, n_splits=2, random_state=7)
+    assert s1.best_value == pytest.approx(s2.best_value)
+    assert s1.best_params == s2.best_params
+
+
+def test_random_search_and_optuna_share_the_same_search_space():
+    """Both search functions must tune exactly the same hyperparameters, for a fair comparison."""
+    random_search_params = {name.removeprefix("clf__") for name in SEARCH_SPACE}
+    assert random_search_params == set(search_space_bounds())

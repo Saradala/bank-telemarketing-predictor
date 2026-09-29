@@ -78,6 +78,59 @@ def random_search_xgb(X_train, y_train, scale_pos_weight, n_iter=40, cap_quantil
     return search
 
 
+def search_space_bounds(search_space=SEARCH_SPACE):
+    """Read (low, high, integer, log_scale) out of each scipy distribution in SEARCH_SPACE.
+
+    Used to build the Optuna objective from the SAME numbers as RandomizedSearchCV, so the two
+    search methods sample from identical ranges and the comparison between them is fair.
+    """
+    bounds = {}
+    for name, dist in search_space.items():
+        param = name.removeprefix("clf__")
+        a, b = dist.args
+        kind = dist.dist.__class__.__name__
+        if kind == "randint_gen":                     # scipy randint(low, high): high is EXCLUSIVE
+            bounds[param] = {"low": a, "high": b - 1, "int": True, "log": False}
+        elif kind == "uniform_gen":                    # scipy uniform(loc, scale): range is [loc, loc + scale]
+            bounds[param] = {"low": a, "high": a + b, "int": False, "log": False}
+        elif kind == "reciprocal_gen":                  # scipy loguniform(a, b): range is [a, b], sampled on a log scale
+            bounds[param] = {"low": a, "high": b, "int": False, "log": True}
+        else:
+            raise ValueError(f"Unknown distribution type for {name}: {kind}")
+    return bounds
+
+
+def optuna_search_xgb(X_train, y_train, scale_pos_weight, n_trials=40, cap_quantile=0.99,
+                      search_space=SEARCH_SPACE, n_splits=CV_FOLDS, random_state=RANDOM_STATE):
+    """Search the SAME SEARCH_SPACE with Optuna's TPE sampler, scored on PR-AUC, stratified CV on TRAINING data.
+
+    Tries n_trials combinations (default 40, matching random_search_xgb's budget). Unlike
+    RandomizedSearchCV, Optuna picks each new trial using what it learned from earlier trials.
+    Returns the fitted optuna.Study: .best_value (mean CV PR-AUC) and .best_params.
+    """
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)   # keep 40 trials of output out of notebooks
+
+    bounds = search_space_bounds(search_space)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    def objective(trial):
+        """One Optuna trial: sample one set of hyperparameters and return its mean CV PR-AUC."""
+        params = {}
+        for param, b in bounds.items():
+            if b["int"]:
+                params[param] = trial.suggest_int(param, b["low"], b["high"])
+            else:
+                params[param] = trial.suggest_float(param, b["low"], b["high"], log=b["log"])
+        pipeline = build_xgb_pipeline(scale_pos_weight, cap_quantile=cap_quantile, **params)
+        scores = cross_validate(pipeline, X_train, y_train, cv=cv, scoring="average_precision", n_jobs=-1)
+        return scores["test_score"].mean()
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=random_state))
+    study.optimize(objective, n_trials=n_trials)
+    return study
+
+
 def cv_summary(pipeline, X_train, y_train, n_splits=CV_FOLDS):
     """Stratified k-fold CV on the TRAINING part only. Returns mean and std of PR-AUC and ROC-AUC."""
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
