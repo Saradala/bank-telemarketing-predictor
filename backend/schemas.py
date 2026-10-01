@@ -54,3 +54,27 @@ class PredictionResponse(BaseModel):
     threshold: float
     model_name: str
     note: str = "Decision support only. Check contact preferences and opt-outs before calling."
+
+
+class BatchResultRow(BaseModel):
+    """One ranked client in a /predict-batch response.
+
+    extra="allow": a caller may include an identifier column (e.g. client_id, name) in their CSV
+    that is not one of ClientFeatures' fields. It is not used by the model, but is carried through
+    here unchanged so the ranked list stays readable (a probability alone does not say whose it is).
+    """
+    model_config = ConfigDict(extra="allow")
+
+    rank: int = Field(..., description="1 = highest predicted probability")
+    probability: float
+    predicted_class: Literal["yes", "no"]
+    recommendation: Literal["Call", "Do not call"]
+    priority: Literal["High", "Medium", "Low"]
+
+
+class BatchPredictionResponse(BaseModel):
+    count: int = Field(..., description="Number of clients ranked")
+    threshold: float
+    model_name: str
+    results: list[BatchResultRow]
+    note: str = "Decision support only. Check contact preferences and opt-outs before calling."
