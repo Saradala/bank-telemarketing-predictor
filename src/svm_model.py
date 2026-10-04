@@ -51,7 +51,8 @@ def build_svm_pipeline(
     C=1.0,
     gamma="scale",
     kernel="rbf",
-    class_weight="balanced"
+    class_weight="balanced",
+    probability=False
 ):
     """
     Build the preprocessing + SVM pipeline.
@@ -64,6 +65,9 @@ def build_svm_pipeline(
 
     Classifier:
         Support Vector Classifier (SVC)
+
+    probability=False is used by default because probability
+    calibration makes SVM training significantly slower.
     """
 
     X, _ = load_data()
@@ -99,7 +103,7 @@ def build_svm_pipeline(
         gamma=gamma,
         kernel=kernel,
         class_weight=class_weight,
-        probability=True,
+        probability=probability,
         random_state=RANDOM_STATE
     )
 
