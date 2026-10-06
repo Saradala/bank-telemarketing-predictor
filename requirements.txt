@@ -1,7 +1,8 @@
 pandas
 numpy
-scikit-learn
-imbalanced-learn
+scikit-learn>=1.9.1   # models/experiments/*.joblib were saved with this version; an older
+                      # scikit-learn fails to load them (predict_proba breaks on LogisticRegression)
+imbalanced-learn>=0.14.1   # needs to match the scikit-learn version above, or SMOTE import fails
 xgboost
 lightgbm
 optuna
