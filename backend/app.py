@@ -16,6 +16,7 @@ import io
 import joblib
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from backend.schemas import COLUMN_MAP, BatchPredictionResponse, ClientFeatures, PredictionResponse
@@ -25,6 +26,13 @@ state = {}
 REQUIRED_COLUMNS = list(ClientFeatures.model_fields)   # single source of truth, shared with /predict
 MAX_BATCH_ROWS = 5000                                   # a soft cap so one upload cannot hang the server
 MAX_ROW_ERRORS_SHOWN = 20                                # avoid a huge error payload on a badly-formed file
+
+# The Next.js frontend (frontend-web/) runs on a different port in development, so the browser
+# blocks requests to this API unless it is explicitly allowed. Next.js picks a different port
+# (3001, 3002, ...) if 3000 is already taken by another project, so any localhost port is
+# allowed in dev rather than hardcoding one. A deployed frontend's real URL would need adding
+# as a fixed origin, since this regex only matches localhost/127.0.0.1.
+DEV_FRONTEND_ORIGIN_REGEX = r"http://(localhost|127\.0\.0\.1):\d+"
 
 
 @asynccontextmanager
@@ -36,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Bank Term-Deposit Call Prioritisation API", version="1.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origin_regex=DEV_FRONTEND_ORIGIN_REGEX, allow_methods=["*"], allow_headers=["*"])
 
 
 def get_bundle():
