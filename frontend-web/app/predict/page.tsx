@@ -7,7 +7,7 @@ import {
 } from "@/lib/api";
 import {
   CONTACT_OPTIONS, EDUCATION_OPTIONS, JOB_OPTIONS, MARITAL_OPTIONS, MONTH_OPTIONS,
-  POUTCOME_OPTIONS, PRIORITY_BADGE, WEEKDAY_OPTIONS, YES_NO_UNKNOWN_OPTIONS,
+  POUTCOME_OPTIONS, PRIORITY_BADGE, RANGE_RULES, WEEKDAY_OPTIONS, YES_NO_UNKNOWN_OPTIONS,
 } from "@/lib/constants";
 
 // Customer-specific fields start empty so the form matches the "empty form" state exactly;
@@ -30,21 +30,12 @@ const REQUIRED_KEYS: (keyof FormState)[] = [
   "day_of_week", "campaign", "pdays", "previous", "poutcome",
 ];
 
-// Matches the numeric bounds enforced by backend/schemas.py ClientFeatures, so a client-side
-// rejection here always means the API would reject it too.
-const RANGE_RULES: { key: "age" | "campaign" | "pdays" | "previous"; label: string; min: number; max: number }[] = [
-  { key: "age", label: "Age", min: 18, max: 100 },
-  { key: "campaign", label: "Contacts this campaign", min: 1, max: 60 },
-  { key: "pdays", label: "Days since prior contact", min: 0, max: 999 },
-  { key: "previous", label: "Prior campaign contacts", min: 0, max: 20 },
-];
-
 type FieldError = { label: string; message: string; caption: string };
 
 function validateForm(form: FormState): Partial<Record<string, FieldError>> {
   const errors: Partial<Record<string, FieldError>> = {};
   for (const { key, label, min, max } of RANGE_RULES) {
-    const value = form[key];
+    const value = form[key as "age" | "campaign" | "pdays" | "previous"];
     if (value !== "" && (value < min || value > max)) {
       const noun = key === "age" ? "an age" : "a value";
       errors[key] = {

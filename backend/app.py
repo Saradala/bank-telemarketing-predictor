@@ -127,7 +127,8 @@ def _validate_batch_rows(df: pd.DataFrame) -> tuple[list[ClientFeatures], list[d
         except ValidationError as exc:
             for err in exc.errors():
                 field = ".".join(str(p) for p in err["loc"])
-                errors.append({"row": i + 2, "field": field, "message": err["msg"]})   # +2: header row, 1-indexed
+                errors.append({"row": i + 2, "field": field, "message": err["msg"],
+                               "value": str(err.get("input", ""))})   # +2: header row, 1-indexed
     return clients, errors
 
 

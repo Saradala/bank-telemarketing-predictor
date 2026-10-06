@@ -1,14 +1,27 @@
 "use client";
 
-import { Download, FileCheck2, ShieldCheck } from "lucide-react";
+import { CircleAlert, Download, FileCheck2, FolderOpen, ListOrdered, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError, BatchPredictionResponse, batchTemplateUrl, fetchModelInfo, predictBatch,
 } from "@/lib/api";
-import { COLUMN_GROUPS, PRIORITY_BADGE } from "@/lib/constants";
+import { COLUMN_GROUPS, PRIORITY_BADGE, explainFieldError } from "@/lib/constants";
 
-type RowErrorDetail = { message: string; errors?: { row: number; field: string; message: string }[]; total_errors?: number };
+type RowErrorDetail = {
+  message: string;
+  errors?: { row: number; field: string; message: string; value?: string }[];
+  total_errors?: number;
+  fileName: string;
+};
 type Priority = "All" | "High" | "Medium" | "Low";
+
+const MISSING_COLUMNS_PREFIX = "Missing required column(s): ";
+
+function joinWithAnd(items: string[]): string {
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
 
 function StatusPill({ bg, text, children }: { bg: string; text: string; children: React.ReactNode }) {
   return (
@@ -24,21 +37,32 @@ export default function BatchUploadPage() {
   const [response, setResponse] = useState<BatchPredictionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<RowErrorDetail | null>(null);
+  const [fileTypeError, setFileTypeError] = useState<string | null>(null);
+  const [missingColumns, setMissingColumns] = useState<{ fileName: string; columns: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<Priority>("All");
   const [threshold, setThreshold] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchModelInfo().then((i) => setThreshold(i.threshold)).catch(() => {});
   }, []);
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handleFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setFileTypeError(file.name);
+      setError(null);
+      setRowErrors(null);
+      setMissingColumns(null);
+      setResponse(null);
+      return;
+    }
+    setFileTypeError(null);
     setLoading(true);
     setError(null);
     setRowErrors(null);
+    setMissingColumns(null);
     setResponse(null);
     try {
       const result = await predictBatch(file);
@@ -46,7 +70,9 @@ export default function BatchUploadPage() {
       setFileName(file.name);
     } catch (err) {
       if (err instanceof ApiError && typeof err.detail === "object" && err.detail !== null) {
-        setRowErrors(err.detail as RowErrorDetail);
+        setRowErrors({ ...(err.detail as RowErrorDetail), fileName: file.name });
+      } else if (err instanceof ApiError && typeof err.detail === "string" && err.detail.startsWith(MISSING_COLUMNS_PREFIX)) {
+        setMissingColumns({ fileName: file.name, columns: err.detail.slice(MISSING_COLUMNS_PREFIX.length).split(", ") });
       } else if (err instanceof ApiError) {
         setError(String(err.detail));
       } else {
@@ -57,11 +83,25 @@ export default function BatchUploadPage() {
     }
   }
 
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
   function onReset() {
     setResponse(null);
     setFileName(null);
     setError(null);
     setRowErrors(null);
+    setFileTypeError(null);
+    setMissingColumns(null);
     setFilter("All");
     if (inputRef.current) inputRef.current.value = "";
     inputRef.current?.click();
@@ -95,6 +135,22 @@ export default function BatchUploadPage() {
     URL.revokeObjectURL(url);
   }
 
+  function downloadErrorReport() {
+    if (!rowErrors?.errors) return;
+    const lines = ["csv_row,column,value,how_to_fix"];
+    for (const e of rowErrors.errors) {
+      lines.push([e.row, e.field, e.value ?? "", explainFieldError(e.field)]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "error_report.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const high = threshold != null ? Math.round(threshold * 100) : null;
   const medium = threshold != null ? Math.round((threshold / 2) * 100) : null;
 
@@ -114,7 +170,7 @@ export default function BatchUploadPage() {
         <div className="bg-white border border-[#dde4df] rounded-[10px] p-[24px] flex flex-col gap-[18px] w-full">
           <div className="flex items-center justify-between w-full">
             <p className="flex-1 font-semibold text-[#23362f] text-[21px]">
-              {fileName ? "Customer list uploaded" : "Upload your customer list"}
+              {fileName ? "Customer list uploaded" : "Upload a customer list"}
             </p>
             <a href={batchTemplateUrl()} download
               className="bg-white border border-[#dde4df] flex gap-[8px] items-center px-[18px] py-[10px] rounded-[6px]">
@@ -139,16 +195,80 @@ export default function BatchUploadPage() {
               </button>
             </div>
           ) : (
-            <button onClick={() => inputRef.current?.click()} disabled={loading}
-              className="border border-dashed border-[#dde4df] rounded-[6px] py-[32px] w-full text-center disabled:opacity-60">
-              <p className="font-semibold text-[#176547] text-[16px]">
-                {loading ? "Scoring every client…" : "Click to choose a CSV file"}
-              </p>
-              <p className="text-[#65736d] text-[13px] mt-[4px]">
-                client_id is optional. duration is never collected — call length is only known after the call.
-              </p>
-            </button>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              className={`flex gap-[24px] items-center p-[28px] rounded-[6px] w-full border-[1.5px] border-dashed ${
+                dragging ? "bg-[#eaf3ee] border-[#176547]" : "bg-[#f4f6f5] border-[#dde4df]"
+              }`}>
+              <div className="bg-white flex items-center justify-center rounded-[10px] shrink-0 size-[56px]">
+                <Upload size={26} className="text-[#176547]" />
+              </div>
+              <div className="flex flex-1 flex-col gap-[4px] min-w-0">
+                <p className="font-semibold text-[#23362f] text-[20px]">
+                  {loading ? "Scoring every client…" : "Drag and drop your CSV here"}
+                </p>
+                <p className="text-[#65736d] text-[15px]">One row = one customer. Use the template to get started.</p>
+                <p className="text-[#65736d] text-[13px]">CSV files only · include the header row</p>
+              </div>
+              <button onClick={() => inputRef.current?.click()} disabled={loading}
+                className="bg-[#176547] border border-[#176547] flex gap-[8px] items-center px-[18px] py-[10px] rounded-[6px] shrink-0 disabled:opacity-60">
+                <FolderOpen size={20} className="text-white" />
+                <span className="font-semibold text-[16px] text-white">Browse files</span>
+              </button>
+            </div>
           )}
+        </div>
+
+        {fileTypeError && (
+          <div className="bg-[#faedec] flex gap-[12px] items-start p-[16px] rounded-[6px] w-full">
+            <CircleAlert size={20} className="text-[#9a4948] shrink-0" />
+            <div className="flex flex-col gap-[3px]">
+              <p className="font-semibold text-[#9a4948] text-[16px]">Wrong file type — CSV required</p>
+              <p className="text-[#9a4948] text-[14px] leading-[1.4]">
+                {fileTypeError} is not supported. Save the spreadsheet as a CSV and upload it again.
+                No predictions were generated.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {missingColumns && (
+          <div className="bg-[#faedec] flex gap-[12px] items-start p-[16px] rounded-[6px] w-full">
+            <CircleAlert size={20} className="text-[#9a4948] shrink-0" />
+            <div className="flex flex-col gap-[3px]">
+              <p className="font-semibold text-[#9a4948] text-[16px]">
+                {missingColumns.columns.length} required column{missingColumns.columns.length > 1 ? "s" : ""} {missingColumns.columns.length > 1 ? "are" : "is"} missing
+              </p>
+              <p className="text-[#9a4948] text-[14px] leading-[1.4]">
+                {missingColumns.fileName} is missing {joinWithAnd(missingColumns.columns)}. Add{" "}
+                {missingColumns.columns.length === 1 ? "the column" : missingColumns.columns.length === 2 ? "both columns" : "all columns"}{" "}
+                or use the template, then upload again. No predictions were generated.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white border border-[#dde4df] rounded-[10px] p-[24px] flex flex-col gap-[18px] w-full">
+          <div className="flex items-start justify-between w-full">
+            <p className="flex-1 font-semibold text-[#23362f] text-[20px]">CSV column checklist</p>
+            <p className="text-[#65736d] text-[14px]">19 required · client_id optional</p>
+          </div>
+          <div className="flex gap-[20px] items-start w-full">
+            {COLUMN_GROUPS.map((group) => (
+              <div key={group.title} className="flex flex-1 flex-col gap-[8px] items-start min-w-0">
+                <p className="font-semibold text-[#23362f] text-[14px]">{group.title}</p>
+                {group.columns.map((col) => (
+                  <p key={col} className="font-mono text-[#65736d] text-[13px]">{col}</p>
+                ))}
+              </div>
+            ))}
+          </div>
+          <p className="text-[#65736d] text-[13px]">
+            Keep column names exactly as shown. Add client_id to identify customers; otherwise a row
+            reference is displayed. Use pdays = 999 if there was no prior contact.
+          </p>
         </div>
 
         {error && (
@@ -158,12 +278,56 @@ export default function BatchUploadPage() {
         )}
 
         {rowErrors && (
-          <div className="bg-[#fef3f2] border border-[#fecdca] rounded-[8px] px-[16px] py-[12px] w-full text-[14px] text-[#b42318] flex flex-col gap-[8px]">
-            <p className="font-semibold">{rowErrors.message}</p>
-            {rowErrors.errors?.map((e, i) => <p key={i}>Row {e.row} · {e.field}: {e.message}</p>)}
-            {rowErrors.total_errors && rowErrors.errors && rowErrors.total_errors > rowErrors.errors.length && (
-              <p>… and {rowErrors.total_errors - rowErrors.errors.length} more row(s) with errors.</p>
-            )}
+          <div className="flex flex-col gap-[12px] items-start w-full">
+            <div className="bg-[#faedec] flex gap-[12px] items-start p-[16px] rounded-[6px] w-full">
+              <CircleAlert size={20} className="text-[#9a4948] shrink-0" />
+              <div className="flex flex-col gap-[3px]">
+                <p className="font-semibold text-[#9a4948] text-[16px]">
+                  {rowErrors.total_errors ?? rowErrors.errors?.length ?? 0} row
+                  {(rowErrors.total_errors ?? 0) > 1 ? "s" : ""} need correction
+                </p>
+                <p className="text-[#9a4948] text-[14px] leading-[1.4]">
+                  {rowErrors.fileName} contains invalid values. Correct the rows below and upload the file again.
+                  No customers have been ranked.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#dde4df] rounded-[10px] p-[24px] flex flex-col gap-[18px] w-full">
+              <div className="flex items-start justify-between w-full">
+                <p className="flex-1 font-semibold text-[#23362f] text-[20px]">Rows to correct</p>
+                <button onClick={downloadErrorReport}
+                  className="bg-white border border-[#dde4df] flex gap-[8px] items-center px-[18px] py-[10px] rounded-[6px]">
+                  <Download size={20} className="text-[#176547]" />
+                  <span className="font-semibold text-[16px] text-[#176547]">Download error report</span>
+                </button>
+              </div>
+              <div className="flex flex-col items-start w-full">
+                <div className="bg-[#eef1ef] flex font-semibold gap-[20px] items-start px-[14px] py-[10px] w-full text-[#65736d] text-[13px]">
+                  <p className="w-[100px]">CSV row</p>
+                  <p className="w-[160px]">Column</p>
+                  <p className="w-[120px]">Value</p>
+                  <p className="flex-1">How to fix</p>
+                </div>
+                {rowErrors.errors?.map((e, i) => (
+                  <div key={i} className="border-b border-[#dde4df] flex gap-[20px] items-start p-[14px] w-full text-[15px]">
+                    <p className="text-[#9a4948] w-[100px]">Row {e.row}</p>
+                    <p className="font-mono text-[#23362f] w-[160px]">{e.field}</p>
+                    <p className="text-[#9a4948] w-[120px] truncate">{e.value}</p>
+                    <p className="text-[#23362f] flex-1">{explainFieldError(e.field)}</p>
+                  </div>
+                ))}
+              </div>
+              {rowErrors.total_errors && rowErrors.errors && rowErrors.total_errors > rowErrors.errors.length && (
+                <p className="text-[#65736d] text-[13px]">
+                  … and {rowErrors.total_errors - rowErrors.errors.length} more row(s) with errors — see the full
+                  error report.
+                </p>
+              )}
+              <p className="text-[#65736d] text-[13px]">
+                CSV row numbers include the header as row 1. Each issue must be fixed before the list can be processed.
+              </p>
+            </div>
           </div>
         )}
 
@@ -259,26 +423,17 @@ export default function BatchUploadPage() {
           </div>
         )}
 
-        <div className="bg-white border border-[#dde4df] rounded-[10px] p-[24px] flex flex-col gap-[18px] w-full">
-          <div className="flex items-start justify-between w-full">
-            <p className="flex-1 font-semibold text-[#23362f] text-[20px]">CSV column checklist</p>
-            <p className="text-[#65736d] text-[14px]">19 required · client_id optional</p>
+        {!response && !error && !rowErrors && !fileTypeError && !missingColumns && (
+          <div className="flex gap-[14px] items-center p-[24px] w-full">
+            <ListOrdered size={28} className="text-[#65736d] shrink-0" />
+            <div className="flex flex-1 flex-col gap-[4px]">
+              <p className="font-semibold text-[#23362f] text-[20px]">Your ranked list will appear here</p>
+              <p className="text-[#65736d] text-[16px]">
+                Upload a valid CSV to see recommendations, priority filters and a downloadable list.
+              </p>
+            </div>
           </div>
-          <div className="flex gap-[20px] items-start w-full">
-            {COLUMN_GROUPS.map((group) => (
-              <div key={group.title} className="flex flex-1 flex-col gap-[8px] items-start min-w-0">
-                <p className="font-semibold text-[#23362f] text-[14px]">{group.title}</p>
-                {group.columns.map((col) => (
-                  <p key={col} className="font-mono text-[#65736d] text-[13px]">{col}</p>
-                ))}
-              </div>
-            ))}
-          </div>
-          <p className="text-[#65736d] text-[13px]">
-            Keep column names exactly as shown. Add client_id to identify customers; otherwise a row
-            reference is displayed. Use pdays = 999 if there was no prior contact.
-          </p>
-        </div>
+        )}
 
         <div className="border-[#dde4df] border-solid border-t flex gap-[10px] items-start py-[16px] w-full">
           <ShieldCheck size={18} className="text-[#65736d] shrink-0" />

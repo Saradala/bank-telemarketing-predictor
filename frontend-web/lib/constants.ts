@@ -34,6 +34,46 @@ export const COLUMN_GROUPS: { title: string; columns: string[] }[] = [
   { title: "Economic context", columns: ["emp_var_rate", "cons_price_idx", "cons_conf_idx", "euribor3m", "nr_employed"] },
 ];
 
+// Numeric bounds enforced by backend/schemas.py ClientFeatures, shared by the Single Prediction
+// form's client-side validation and the Batch Upload page's row-error explanations.
+export const RANGE_RULES: { key: string; label: string; min: number; max: number }[] = [
+  { key: "age", label: "Age", min: 18, max: 100 },
+  { key: "campaign", label: "Contacts this campaign", min: 1, max: 60 },
+  { key: "pdays", label: "Days since prior contact", min: 0, max: 999 },
+  { key: "previous", label: "Prior campaign contacts", min: 0, max: 20 },
+];
+
+const CATEGORICAL_FIELDS: Record<string, string[]> = {
+  job: JOB_OPTIONS, marital: MARITAL_OPTIONS, education: EDUCATION_OPTIONS,
+  default: YES_NO_UNKNOWN_OPTIONS, housing: YES_NO_UNKNOWN_OPTIONS, loan: YES_NO_UNKNOWN_OPTIONS,
+  contact: CONTACT_OPTIONS, month: MONTH_OPTIONS, day_of_week: WEEKDAY_OPTIONS, poutcome: POUTCOME_OPTIONS,
+};
+
+// Same example values used as the Single Prediction form's economic-context defaults.
+const ECONOMIC_FIELD_EXAMPLES: Record<string, number> = {
+  emp_var_rate: -1.8, cons_price_idx: 92.893, cons_conf_idx: -46.2, euribor3m: 1.313, nr_employed: 5099.1,
+};
+
+// Translates a field name into plain-language guidance, for the Batch Upload "Rows to correct"
+// table. Covers both out-of-range and wrong-type values with the same actionable message, since
+// the fix is the same either way: enter a valid value of the right kind for that field.
+export function explainFieldError(field: string): string {
+  const range = RANGE_RULES.find((r) => r.key === field);
+  if (range) {
+    const noun = field === "age" ? "an age" : "a value";
+    return `Enter ${noun} between ${range.min} and ${range.max}.`;
+  }
+  const options = CATEGORICAL_FIELDS[field];
+  if (options) {
+    return options.length <= 2
+      ? `Use ${options.join(" or ")}.`
+      : `Use ${options.slice(0, -1).join(", ")}, or ${options[options.length - 1]}.`;
+  }
+  const example = ECONOMIC_FIELD_EXAMPLES[field];
+  if (example != null) return `Enter a numeric value, e.g. ${example}.`;
+  return "Check this value and try again.";
+}
+
 // Design tokens pulled from the real Figma design (file VkyEQ4oNoz4UkvI8X9vfEE,
 // frame "Home - Dashboard", node 2:10479) via get_design_context.
 export const COLORS = {
